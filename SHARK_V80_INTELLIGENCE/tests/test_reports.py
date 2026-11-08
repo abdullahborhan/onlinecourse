@@ -96,8 +96,9 @@ def test_workflow_imports_and_reports(db):
 
 def test_cli_exit_codes(db):
     import run_weekly
-    args = ["--now", "2026-01-11T12:00", "--no-pdf", "--no-monthly"]
+    args = ["--now", "2026-01-11T12:00", "--no-pdf", "--no-monthly", "--account", syn.ACCOUNT]
     assert run_weekly.main(args) == 2  # empty database -> DATA MISSING
     (config.INCOMING_DIR / "deals_SYNTHETIC.csv").write_text(syn.deals_csv())
     assert run_weekly.main(args) == 0
     assert run_weekly.main(["--week", "2026-01-05", "--account", syn.ACCOUNT, "--no-pdf"]) == 0
+    assert db.accounts() == [syn.ACCOUNT]  # account-less CSV attributed via --account

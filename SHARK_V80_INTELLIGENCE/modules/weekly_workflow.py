@@ -54,7 +54,7 @@ def run_weekly(db: Database | None = None, cfg=None, now=None, account: str | No
         summary["backup_error"] = str(exc)
 
     if do_import:
-        results = import_incoming_directory(db, cfg)
+        results = import_incoming_directory(db, cfg, account_id=account)
         summary["imports"] = [{"file": r.filename, "kind": r.kind, "status": r.status,
                                "account": r.account_id, "records": r.records,
                                "errors": r.errors[:3]} for r in results]

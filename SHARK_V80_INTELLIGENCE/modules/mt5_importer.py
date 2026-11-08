@@ -404,16 +404,18 @@ class MT5Importer:
         res.status, res.validation = status, validation
 
 
-def import_incoming_directory(db: Database, cfg=None, move_processed: bool = True
-                              ) -> list[ImportResult]:
-    """Import every file in data/incoming (used by the weekly workflow)."""
+def import_incoming_directory(db: Database, cfg=None, move_processed: bool = True,
+                              account_id: str | None = None) -> list[ImportResult]:
+    """Import every file in data/incoming (used by the weekly workflow).
+
+    ``account_id`` is applied to files that do not state an account (CSV, logs)."""
     importer = MT5Importer(db, cfg)
     results = []
     config.INCOMING_DIR.mkdir(parents=True, exist_ok=True)
     for path in sorted(config.INCOMING_DIR.iterdir()):
         if path.name.startswith(".") or not path.is_file():
             continue
-        res = importer.import_path(path)
+        res = importer.import_path(path, account_id=account_id)
         results.append(res)
         if move_processed and res.status != REJECTED:
             dest = config.PROCESSED_DIR / path.name

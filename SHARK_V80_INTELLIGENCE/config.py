@@ -182,7 +182,11 @@ class AIConfig:
     external_ai_enabled: bool = False
     provider: str = "anthropic"
     model: str = "claude-opus-5-5"
-    max_tokens: int = 2000
+    max_tokens: int = 16000
+    effort: str = "medium"
+    # Server-side refusal fallback (Claude API only): re-runs a declined request
+    # on Anthropic's recommended fallback model instead of returning a refusal.
+    use_refusal_fallback: bool = True
 
 
 @dataclass

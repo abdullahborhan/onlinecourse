@@ -236,13 +236,16 @@ def _day_verdicts(days: pd.DataFrame, risk_cfg, kind: str) -> dict:
                                     if "equity_sampling_s" in days.columns else "")
         return _check(name, BREACH, f"{len(breaches)} day(s): {what}.", basis, ev)
     if unverifiable:
-        worst = days["realised_worst_pct"].max() if "realised_worst_pct" in days else np.nan
+        if kind == "profit_lock":
+            best = days["realised_best_pct"].max() if "realised_best_pct" in days else np.nan
+            extra = f" (best realised intraday gain {best:.2f}%)" if pd.notna(best) else ""
+        else:
+            worst = days["realised_worst_pct"].max() if "realised_worst_pct" in days else np.nan
+            extra = f" (worst realised intraday loss {worst:.2f}%)" if pd.notna(worst) else ""
         return _check(name, UNVERIFIABLE,
                       f"{len(unverifiable)} trading day(s) cannot be verified without intraday "
-                      f"equity data. No breach is visible in realised P/L"
-                      + (f" (worst realised intraday loss {worst:.2f}%)" if pd.notna(worst) else "")
-                      + ", but this does not prove the lock operated.",
-                      "realised deals only", ev)
+                      f"equity data. No breach is visible in realised P/L{extra}, but this does "
+                      "not prove the lock operated.", "realised deals only", ev)
     return _check(name, COMPLIANT, f"All {len(compliant)} trading day(s) verified against "
                   "intraday equity observations.", "equity observations", ev)
 

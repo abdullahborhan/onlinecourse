@@ -174,7 +174,7 @@ def layer_stats(trades: pd.DataFrame) -> pd.DataFrame:
             "avg_net": float(net.mean()),
             "profit_factor": pf.value if pf.value is not None else np.nan,
             "profit_contribution_pct": float(net.sum() / total_net * 100) if total_net else np.nan,
-            "loss_share_pct": float(gl / gross_loss * 100) if gross_loss else 0.0,
+            "loss_share_pct": float(gl / gross_loss * 100) + 0.0 if gross_loss else 0.0,
             "volume_share_pct": float(g["volume"].sum() / closed["volume"].sum() * 100),
             "risk_contribution_pct": float(g["risk_money"].sum() / total_risk * 100)
             if "risk_money" in g and g["risk_money"].notna().all() and total_risk

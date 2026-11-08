@@ -213,10 +213,12 @@ def major_findings(checks, findings, perf, completeness) -> list[str]:
     for c in checks:
         if c["verdict"] == BREACH:
             ranked.append((5, f"Risk breach – {c['check']}: {c['summary']}"))
+    weight = {"comparison": 0.4, "anomaly": 0.3, "strategy": 0.2, "layering": 0.1}
     for f in findings:
-        if f.get("category") == "risk":
+        if f.get("category") == "risk" or f.get("severity") == "INFO":
             continue
-        ranked.append((SEVERITY_ORDER.get(f["severity"], 0), f["fact"]))
+        ranked.append((SEVERITY_ORDER.get(f["severity"], 0) + weight.get(f["category"], 0),
+                       f["fact"]))
     unver = [c["check"] for c in checks if c["verdict"] == UNVERIFIABLE]
     if unver:
         ranked.append((2.5, "Verification incomplete for: " + ", ".join(unver)
@@ -292,7 +294,7 @@ def run_analysis(db: Database, account_id: str, start, end, period_type: str = "
         max_dd_money=dd_period["balance"].get("max_dd_money")
         if dd_period["balance"].get("status") == "CALCULATED" else None,
         balance_basis=bal_basis)
-    layering = analyze_layering(trades, base["point_values"], cfg.risk, events, activity)
+    layering = analyze_layering(trades, base["point_values"], cfg.risk, ev_p, activity)
     risk = analyze_risk(deals=deals, trades_all=trades, period_trades=activity, equity=equity,
                         start=start, end=end, risk_cfg=cfg.risk, analysis_cfg=cfg.analysis,
                         baskets=layering.get("baskets"), drawdown_full=dd_full,
@@ -316,6 +318,9 @@ def run_analysis(db: Database, account_id: str, start, end, period_type: str = "
     if not activity.empty:
         cov = float((activity["strategy"] != UNCLASSIFIED).mean() * 100)
         cls_period = {**cls, "coverage_pct": cov, "complete": cov == 100.0,
+                      "by_source": activity["strategy_source"].value_counts().to_dict(),
+                      "conflicts": [c for c in cls.get("conflicts", [])
+                                    if c["position_id"] in set(activity["position_id"])],
                       "total": int(len(activity)),
                       "classified": int((activity["strategy"] != UNCLASSIFIED).sum())}
     else:

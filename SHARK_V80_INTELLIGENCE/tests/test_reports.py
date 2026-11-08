@@ -92,3 +92,12 @@ def test_workflow_imports_and_reports(db):
     s2 = run_weekly(db=db, now="2026-01-25 12:00", pdf=False, monthly=False)
     assert len(s2["data_missing"]) == 1
     assert "No new files were imported" in Path(s2["data_missing"][0]).read_text()
+
+
+def test_cli_exit_codes(db):
+    import run_weekly
+    args = ["--now", "2026-01-11T12:00", "--no-pdf", "--no-monthly"]
+    assert run_weekly.main(args) == 2  # empty database -> DATA MISSING
+    (config.INCOMING_DIR / "deals_SYNTHETIC.csv").write_text(syn.deals_csv())
+    assert run_weekly.main(args) == 0
+    assert run_weekly.main(["--week", "2026-01-05", "--account", syn.ACCOUNT, "--no-pdf"]) == 0

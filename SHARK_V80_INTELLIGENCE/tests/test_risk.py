@@ -125,4 +125,4 @@ def test_sparse_equity_is_not_enough(clean_week):
     c = _checks(run_analysis(db, "CLN", "2026-01-05", "2026-01-12",
                              compare_with_db=False))["daily_loss_lock"]
     assert c["verdict"] == UNVERIFIABLE
-    assert "sampling" in c["evidence"]["unverifiable_days"][0]["reason"]
+    assert "coverage gap" in c["evidence"]["unverifiable_days"][0]["reason"]

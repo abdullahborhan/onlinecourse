@@ -121,14 +121,20 @@ def parse_timestamps(series: pd.Series, dayfirst_default: bool = True
         info["failed"] = int(out[raw.notna()].isna().sum())
         return out, info
 
-    best = None
+    # Unambiguous formats (year-first or dotted day-first) are combined row by row so a file
+    # mixing e.g. "2026.01.05 10:00:00" and "2026.01.05 10:00" parses completely.
+    parsed = pd.Series(pd.NaT, index=raw.index, dtype="datetime64[ns]")
+    used = []
     for fmt in _FORMATS:
-        parsed = _try_format(raw, fmt)
-        ok = parsed[raw.notna()].notna().mean()
-        if ok >= 0.98 and (best is None or ok > best[1]):
-            best = (fmt, ok, parsed)
-            if ok == 1.0:
-                break
+        todo = raw.notna() & parsed.isna()
+        if not todo.any():
+            break
+        p = _try_format(raw[todo], fmt)
+        if p.notna().any():
+            parsed.loc[p.index[p.notna()]] = p[p.notna()]
+            used.append(fmt)
+    ok = parsed[raw.notna()].notna().mean()
+    best = (" | ".join(used), ok, parsed) if ok >= 0.98 and used else None
     if best is None:
         for dfmt, mfmt in _AMBIGUOUS_PAIRS:
             pd_ = _try_format(raw, dfmt)
@@ -150,16 +156,20 @@ def parse_timestamps(series: pd.Series, dayfirst_default: bool = True
                 best = (mfmt, okm, pm_)
             break
     if best is None:
-        # Last resort: pandas inference, flagged
-        parsed = pd.to_datetime(raw, errors="coerce", dayfirst=dayfirst_default, format="mixed")
-        info["format"] = "inferred"
-        info["warning"] = "Timestamp format not recognised exactly; pandas inference used."
-        info["failed"] = int(parsed[raw.notna()].isna().sum())
-        return parsed, info
+        # No reliable format: never guess (guessing can silently swap day and month).
+        info["format"] = None
+        info["failed"] = int(raw.notna().sum())
+        sample = ", ".join(str(x) for x in nonnull.head(3))
+        info["warning"] = f"Unrecognised timestamp format (e.g. {sample})."
+        return pd.Series(pd.NaT, index=series.index, dtype="datetime64[ns]"), info
 
     fmt, _, parsed = best
     info["format"] = fmt
     info["failed"] = int(parsed[raw.notna()].isna().sum())
+    if info["failed"]:
+        bad = ", ".join(str(x) for x in raw[raw.notna() & parsed.isna()].head(3))
+        info["warning"] = (info.get("warning") or "") + \
+            f" {info['failed']} timestamp(s) could not be parsed (e.g. {bad})."
     # Drop tz if any (store naive broker server time)
     if getattr(parsed.dt, "tz", None) is not None:
         parsed = parsed.dt.tz_localize(None)

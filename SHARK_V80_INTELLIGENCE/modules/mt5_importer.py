@@ -67,6 +67,12 @@ class ImportResult:
         return json.loads(json.dumps(self.__dict__, default=str))
 
 
+def _split_issues(res, issues):
+    """Issues prefixed 'ERROR:' reject the file; the rest are warnings."""
+    for i in issues:
+        (res.errors if str(i).startswith("ERROR:") else res.warnings).append(i)
+
+
 def detect_kind(filename: str, text: str) -> str:
     ext = Path(filename).suffix.lower()
     head = text.lstrip()[:3000].lower()
@@ -223,7 +229,7 @@ class MT5Importer:
         deals = positions = orders = pd.DataFrame()
         if "deals" in tables:
             deals, issues, meta = normalize_deals(tables["deals"], account, None)
-            res.warnings.extend(issues)
+            _split_issues(res, issues)
             validation["deals_mapping"] = meta
         if "positions" in tables:
             positions, issues, meta = normalize_positions(tables["positions"], account, None)
@@ -288,7 +294,7 @@ class MT5Importer:
         account = self._resolve_account(account_id, res)
         res.account_id = account
         deals, issues, meta = normalize_deals(raw, account, None, info["decimal_comma"])
-        res.warnings.extend(issues)
+        _split_issues(res, issues)
         if deals.empty:
             res.errors.extend(issues or ["No valid deal rows."])
             return

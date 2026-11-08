@@ -196,7 +196,10 @@ def analyze_layering(trades: pd.DataFrame, point_vals: dict, risk_cfg, ea_events
     out["basket_methods"] = pt["basket_method"].value_counts().to_dict()
     inferred_share = float((pt["basket_method"] != EXPLICIT).mean() * 100)
     out["inferred_share_pct"] = inferred_share
-    baskets = basket_table(pt, point_vals)
+    # A basket is evaluated with ALL its layers, including ones opened in earlier periods
+    full = trades[trades["basket_id"].isin(set(pt["basket_id"]))] if trades is not None \
+        and not trades.empty else pt
+    baskets = basket_table(full, point_vals)
     out["baskets"] = baskets
     out["layers"] = layer_stats(pt)
     out["exposure"] = simultaneous_exposure(pt)

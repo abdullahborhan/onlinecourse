@@ -37,7 +37,9 @@ mapping is shown for confirmation, and unmapped items are reported.
 ### Accepted timestamp formats
 `YYYY.MM.DD HH:MM[:SS[.fff]]`, ISO (`YYYY-MM-DD[ T]HH:MM[:SS]`), `YYYY/MM/DD`,
 `DD.MM.YYYY`, `DD/MM/YYYY` vs `MM/DD/YYYY` (detected; ambiguous files are flagged and read
-day-first), Unix epoch (s or ms). All times are stored as naive broker **server** time.
+day-first), Unix epoch (s or ms). Unambiguous formats may be mixed within one file (e.g. with
+and without seconds). SVPI never guesses an unknown format: a deal row whose timestamp cannot
+be parsed, or a trade deal with a blank Profit, **rejects the file**. All times are stored as naive broker **server** time.
 
 ## Canonical tables
 

@@ -114,6 +114,11 @@ def balance_curve(deals: pd.DataFrame, trades: pd.DataFrame,
         t = trades[trades["status"] == "CLOSED"].sort_values("close_time")
         curve = pd.DataFrame({"time": t["close_time"], "balance": t["net_profit"].cumsum(),
                               "flows_cum": 0.0})
+        if not curve.empty:  # anchor at 0 so a first losing trade counts as drawdown
+            t0 = pd.Timestamp(start) if start is not None else \
+                t["close_time"].min() - pd.Timedelta(seconds=1)
+            curve = pd.concat([pd.DataFrame({"time": [t0], "balance": [0.0],
+                                             "flows_cum": [0.0]}), curve], ignore_index=True)
         basis = "CUMULATIVE_PL_ONLY"  # no balance level -> % unavailable
     else:
         return pd.DataFrame(columns=["time", "balance", "flows_cum", "pl"]), "UNAVAILABLE"

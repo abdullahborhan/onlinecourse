@@ -71,18 +71,18 @@ with ≥1 close.
 
 | Check | BREACH when | COMPLIANT requires | Otherwise |
 |---|---|---|---|
-| daily_loss_lock (2%) | a position opens after cumulative realised (or observed equity) loss for the day reached the lock | equity samples ≤ 900 s for each trading day | UNVERIFIABLE |
+| daily_loss_lock (2%) | a position opens after cumulative realised (or observed, flow-adjusted equity) loss for the day reached the lock | equity coverage with no gap > 900 s from day start to the day's last activity | UNVERIFIABLE |
 | daily_hard_stop (3%) | day loss reached 3% (realised or equity) | as above | UNVERIFIABLE |
 | daily_profit_lock (1.5%) | a position opens after the day's gain reached the target (if `profit_target_is_lock`) | as above | UNVERIFIABLE |
-| weekly_loss_lock (5%) | cumulative period loss reached 5% (entries after it are listed) | equity observations in period | UNVERIFIABLE |
+| weekly_loss_lock (5%) | cumulative period loss reached 5% (entries after it are listed) | equity coverage (gaps ≤ 900 s) across the period's trading | UNVERIFIABLE |
 | max_layers (3) | any basket has > 3 positions | baskets identifiable | — |
 | max_basket_risk (1%) | basket risk > 1% × (1 + 10% tolerance) or a layer above its 0.50/0.25/0.25% allocation | risk computable for all baskets | UNVERIFIABLE |
-| max_equity_drawdown (10%) | equity DD ≥ 10%, or closed-trade DD alone ≥ 10% | equity observations | UNVERIFIABLE |
+| max_equity_drawdown (10%) | equity DD ≥ 10%, or closed-trade DD alone ≥ 10% | equity coverage (gaps ≤ 900 s) over the whole trading history | UNVERIFIABLE |
 | martingale (disabled) | ≥ 2 positions with volume ≥ 1.5× the previous same-layer position that lost | trade volumes | — |
 | stop_loss_presence | any position without SL at entry | SL recorded for all | UNVERIFIABLE |
-| lot_escalation | volume > 2× historical median for its layer | ≥ 5 trades of history | UNVERIFIABLE |
+| lot_escalation | volume > 2× the per-layer median of trades opened **before** the period | ≥ 5 trades before the period | UNVERIFIABLE |
 
-Day boundaries are broker **server** days (`server_timezone`, default UTC). Day-start balance
+Equity-based checks subtract deposits/withdrawals (cumulative balance operations) from equity, so cash flows are never treated as trading gains or losses. Baskets are evaluated with all their layers, including layers opened in earlier periods. Day boundaries are broker **server** days (`server_timezone`, default UTC). Day-start balance
 is the last balance before 00:00, or the balance after leading deposits at 00:00.
 
 ## Layering

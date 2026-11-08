@@ -61,6 +61,12 @@ def validate_deals(df: pd.DataFrame) -> dict:
         if bad_vol.any():
             rep["errors"].append(f"{int(bad_vol.sum())} trade deal(s) with missing/non-positive "
                                  "volume.")
+        blank = trade["profit"].isna()
+        if blank.any():
+            rep["errors"].append(
+                f"{int(blank.sum())} trade deal(s) have a blank Profit value (tickets "
+                f"{', '.join(trade.loc[blank, 'deal_id'].astype(str).head(5))}); a missing "
+                "profit is never treated as zero - re-export the complete report.")
         if trade["entry"].isna().all():
             rep["warnings"].append("Deal entry (IN/OUT) not provided: entry/exit will be inferred "
                                    "from position direction where a position id exists.")

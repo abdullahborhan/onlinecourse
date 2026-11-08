@@ -186,7 +186,14 @@ def normalize_deals(raw: pd.DataFrame, account_id: str, source_file_id: int | No
         out[col] = out[col].map(lambda v: None if v is None or (isinstance(v, float) and np.isnan(v))
                                 or str(v).strip() == "" else str(v).strip())
 
-    # SL/TP of 0 in MT5 means "not set" (not a price of zero) -> keep 0 as "not set" marker
+    # A row with a deal ticket but an unparseable time is a real deal we cannot place in
+    # time: it is an ERROR (never silently dropped as a "summary row").
+    lost = out["time"].isna() & out["deal_id"].notna() & \
+        raw[mapping["time"]].astype(str).str.strip().ne("")
+    meta["unparseable_time_rows"] = int(lost.sum())
+    if lost.any():
+        issues.append(f"ERROR: {int(lost.sum())} deal row(s) have unparseable timestamps "
+                      f"(tickets {', '.join(out.loc[lost, 'deal_id'].head(5))}).")
     # Rows that are not deals (summary/total rows) have no time AND no deal id
     bad = out["time"].isna() | out["deal_id"].isna()
     if bad.any():

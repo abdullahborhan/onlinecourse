@@ -247,6 +247,16 @@ def reconstruct_trades(deals: pd.DataFrame, report_positions: pd.DataFrame | Non
         trades = trades.sort_values(["close_time", "open_time", "position_id"],
                                     na_position="last", kind="stable").reset_index(drop=True)
     rep["report_position_rows_used"] = int(len(from_rep))
+    # Fees present on deals cannot be attributed to MT5 HTML positions (no position id)
+    if len(from_rep) and not deals.empty and "fee" in deals:
+        td = deals[deals["deal_type"].isin(TRADE_TYPES)]
+        fee_total = float(td["fee"].fillna(0).sum())
+        if abs(fee_total) > 1e-9:
+            trades.loc[trades["source"] == "REPORT_POSITIONS", "costs_complete"] = False
+            rep["unattributed_fees"] = fee_total
+            rep["note"] = (f"Deals carry fees totalling {fee_total:.2f} that cannot be attributed "
+                           "to positions (MT5 HTML deals lack position ids); position net "
+                           "profit excludes them.")
     rep["sources"] = sorted(trades["source"].unique().tolist()) if not trades.empty else []
     rep["partial_close_detection"] = (
         "AVAILABLE" if rep.get("positions") and not len(from_rep) else

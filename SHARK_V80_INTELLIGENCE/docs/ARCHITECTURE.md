@@ -104,7 +104,7 @@ Development was organised by role ownership. Shared production modules (`common.
 | 2 Quantitative Analyst | `performance_engine.py`, `anomaly_detector.py`, `comparison_engine.py`, `strategy_analyzer.py`, `METRICS.md` | Hand-calculated expectations in `test_performance.py`, `test_strategy.py`, `test_comparison.py` |
 | 3 Data Engineer | importers, parsers, `normalizer.py`, `data_validator.py`, `database.py`, `trade_reconstruction.py` | `test_importer.py`, `test_reconstruction.py`, `test_database.py` |
 | 4 Risk Engineer | `drawdown_engine.py`, `risk_analyzer.py`, `layering_analyzer.py`, `execution_quality.py` | `test_drawdown.py`, `test_risk.py`, `test_layering.py` |
-| 5 QA Engineer | `tests/`, synthetic fixtures, `report_generator.py` checks, dashboard smoke test | 87 tests passing; synthetic data never reaches production |
+| 5 QA Engineer | `tests/`, synthetic fixtures, `report_generator.py` checks, dashboard smoke test, independent acceptance review (`test_regressions.py`) | Full suite passing; synthetic data never reaches production |
 
 ## Extension points
 

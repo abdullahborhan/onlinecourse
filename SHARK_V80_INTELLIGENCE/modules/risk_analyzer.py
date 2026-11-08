@@ -104,11 +104,29 @@ def _lock_scan(events, opens, start_value, threshold_pct, sign: int, day_start, 
             "entries_after_hit": int(len(after))}
 
 
-def _equity_day_scan(equity, opens, start_eq, threshold_pct, sign, day_start, day_end):
+def flow_adjusted_equity(equity: pd.DataFrame, flows: pd.Series | None) -> pd.DataFrame:
+    """Add column ``adj`` = equity - cumulative external cash flows up to each sample.
+
+    Deposits/withdrawals therefore never appear as trading gains/losses."""
+    e = equity.sort_values("time").copy()
+    if flows is None or len(flows) == 0:
+        e["adj"] = e["equity"]
+        return e
+    f = flows.sort_index()
+    cum = f.cumsum()
+    idx = np.searchsorted(cum.index.values, e["time"].values, side="right")
+    e["adj"] = e["equity"].values - np.where(idx > 0, cum.values[np.maximum(idx - 1, 0)], 0.0)
+    return e
+
+
+def _equity_day_scan(equity, opens, start_eq, threshold_pct, sign, day_start, day_end,
+                     denom):
+    """``equity`` must carry the flow-adjusted ``adj`` column; ``start_eq`` is the adjusted
+    reference at day start; percentages are relative to ``denom`` (account value)."""
     e = equity[(equity["time"] >= day_start) & (equity["time"] < day_end)]
-    if e.empty or not start_eq:
+    if e.empty or not denom:
         return None
-    chg = (e["equity"] - start_eq) / start_eq * 100
+    chg = (e["adj"] - start_eq) / denom * 100
     hit = e[(chg <= -threshold_pct) if sign < 0 else (chg >= threshold_pct)]
     hit_time = hit["time"].iloc[0] if not hit.empty else None
     after = opens[(opens > hit_time) & (opens < day_end)] if hit_time is not None else []
@@ -117,14 +135,27 @@ def _equity_day_scan(equity, opens, start_eq, threshold_pct, sign, day_start, da
             "entries_after_hit": int(len(after))}
 
 
+def _coverage_gap_s(sample_times: pd.Series, window_start, window_end) -> float:
+    """Largest gap (s) between equity samples across [window_start, window_end],
+    counting the window edges, so an uncovered stretch anywhere is detected."""
+    pts = [pd.Timestamp(window_start)] + [t for t in sample_times
+                                          if window_start <= t <= window_end] + \
+        [pd.Timestamp(window_end)]
+    pts = sorted(pts)
+    return float(max((b - a).total_seconds() for a, b in zip(pts, pts[1:]))) if len(pts) > 1 \
+        else np.inf
+
+
 def daily_table(deals, trades, equity, start, end, risk_cfg) -> pd.DataFrame:
     """Per-day realised and (if available) equity-based loss/profit figures."""
-    bal, _ = _balance_lookup(deals)
+    bal, flows = _balance_lookup(deals)
     events = _realised_events(deals, trades)
     opens = trades["open_time"].dropna() if not trades.empty else pd.Series(dtype="datetime64[ns]")
     days = pd.date_range(pd.Timestamp(start).normalize(), pd.Timestamp(end) - pd.Timedelta("1ns"),
                          freq="D")
     eq = equity if equity is not None else pd.DataFrame()
+    if not eq.empty:
+        eq = flow_adjusted_equity(eq, flows)
     rows = []
     for d in days:
         d_end = d + pd.Timedelta(days=1)
@@ -151,16 +182,26 @@ def daily_table(deals, trades, equity, start, end, risk_cfg) -> pd.DataFrame:
         if not eq.empty:
             prior = eq[eq["time"] < d]
             in_day = eq[(eq["time"] >= d) & (eq["time"] < d_end)]
+            start_adj = float(prior["adj"].iloc[-1]) if not prior.empty else \
+                (float(in_day["adj"].iloc[0]) if not in_day.empty else np.nan)
             start_eq = float(prior["equity"].iloc[-1]) if not prior.empty else \
                 (float(in_day["equity"].iloc[0]) if not in_day.empty else np.nan)
-            if not np.isnan(start_eq) and not in_day.empty:
-                el = _equity_day_scan(eq, opens, start_eq, risk_cfg.daily_loss_lock_pct, -1, d,
-                                      d_end)
-                eh = _equity_day_scan(eq, opens, start_eq, risk_cfg.daily_hard_stop_pct, -1, d,
-                                      d_end)
-                ep = _equity_day_scan(eq, opens, start_eq, risk_cfg.daily_profit_target_pct, 1,
-                                      d, d_end)
-                gaps = in_day["time"].diff().dt.total_seconds().dropna()
+            if not np.isnan(start_adj) and not in_day.empty and start_eq > 0:
+                el = _equity_day_scan(eq, opens, start_adj, risk_cfg.daily_loss_lock_pct, -1,
+                                      d, d_end, start_eq)
+                eh = _equity_day_scan(eq, opens, start_adj, risk_cfg.daily_hard_stop_pct, -1,
+                                      d, d_end, start_eq)
+                ep = _equity_day_scan(eq, opens, start_adj, risk_cfg.daily_profit_target_pct,
+                                      1, d, d_end, start_eq)
+                # Coverage: from day start (or prior sample) to the day's last activity
+                acts = [t for t in list(events.loc[(events["time"] >= d) &
+                                                   (events["time"] < d_end), "time"]) +
+                        list(opens[(opens >= d) & (opens < d_end)])]
+                last_act = max(acts) if acts else d
+                times = list(in_day["time"])
+                if not prior.empty:
+                    times = [d] + times  # value at day start is known from prior sample
+                gap = _coverage_gap_s(pd.Series(times), d, last_act)
                 row.update({"equity_start": start_eq, "equity_worst_pct": el["worst_pct"],
                             "equity_best_pct": ep["best_pct"],
                             "equity_loss_lock_hit": el["hit_time"],
@@ -168,7 +209,7 @@ def daily_table(deals, trades, equity, start, end, risk_cfg) -> pd.DataFrame:
                             "equity_hard_stop_hit": eh["hit_time"],
                             "equity_profit_target_hit": ep["hit_time"],
                             "equity_entries_after_profit_target": ep["entries_after_hit"],
-                            "equity_sampling_s": float(gaps.median()) if len(gaps) else np.nan})
+                            "equity_sampling_s": gap})
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -215,7 +256,8 @@ def _day_verdicts(days: pd.DataFrame, risk_cfg, kind: str) -> dict:
         elif not eq_ok:
             unverifiable.append({"day": d["day"],
                                  "reason": "no intraday equity" if not has_eq else
-                                 f"equity sampling {d['equity_sampling_s']:.0f}s > {max_s}s"})
+                                 f"equity coverage gap {d['equity_sampling_s']:.0f}s > "
+                                 f"{max_s}s"})
         else:
             compliant.append(d["day"])
     thresholds = {"loss_lock": risk_cfg.daily_loss_lock_pct,
@@ -276,14 +318,29 @@ def weekly_loss_check(deals, trades, equity, start, end, risk_cfg) -> dict:
                       f"Worst realised cumulative loss {max(scan['worst_pct'], 0):.2f}% is below "
                       f"the {risk_cfg.weekly_loss_lock_pct}% limit, but floating losses are not "
                       "observable without equity data.", "realised deals only", ev)
-    e = equity[(equity["time"] >= pd.Timestamp(start)) & (equity["time"] < pd.Timestamp(end))]
-    worst_eq = float((sb - e["equity"].min()) / sb * 100)
+    _, flows = _balance_lookup(deals)
+    ea = flow_adjusted_equity(equity, flows)
+    prior = ea[ea["time"] < pd.Timestamp(start)]
+    e = ea[(ea["time"] >= pd.Timestamp(start)) & (ea["time"] < pd.Timestamp(end))]
+    ref = float(prior["adj"].iloc[-1]) if not prior.empty else float(e["adj"].iloc[0])
+    worst_eq = float(max(0.0, ref - e["adj"].min()) / sb * 100)
+    last_act = max([t for t in list(events["time"]) + list(opens)
+                    if pd.Timestamp(start) <= t < pd.Timestamp(end)], default=pd.Timestamp(start))
+    times = ([pd.Timestamp(start)] if not prior.empty else []) + list(e["time"])
+    gap = _coverage_gap_s(pd.Series(times), pd.Timestamp(start), last_act)
+    ev["equity_max_gap_s"] = gap
     ev["equity_worst_pct"] = worst_eq
     if worst_eq >= risk_cfg.weekly_loss_lock_pct:
         return _check("weekly_loss_lock", BREACH, f"Equity fell {worst_eq:.2f}% below the "
                       "period-start balance.", "equity observations", ev)
+    if gap > risk_cfg.max_equity_sampling_s_for_lock_verification:
+        return _check("weekly_loss_lock", UNVERIFIABLE,
+                      f"Worst observed (flow-adjusted) equity loss {worst_eq:.2f}% is below the "
+                      f"limit, but equity data has gaps up to {gap / 3600:.1f}h during trading.",
+                      "equity observations (incomplete coverage)", ev)
     return _check("weekly_loss_lock", COMPLIANT, f"Worst equity loss {worst_eq:.2f}% vs "
-                  f"{risk_cfg.weekly_loss_lock_pct}% limit.", "equity observations", ev)
+                  f"{risk_cfg.weekly_loss_lock_pct}% limit (deposits/withdrawals excluded).",
+                  "equity observations", ev)
 
 
 def martingale_check(trades: pd.DataFrame, factor: float, period_trades: pd.DataFrame) -> dict:
@@ -313,10 +370,13 @@ def martingale_check(trades: pd.DataFrame, factor: float, period_trades: pd.Data
                   "trade volumes")
 
 
-def lot_escalation_check(trades: pd.DataFrame, period_trades: pd.DataFrame) -> dict:
-    hist = trades[trades["open_time"].notna()]
+def lot_escalation_check(trades: pd.DataFrame, period_trades: pd.DataFrame, start) -> dict:
+    """Compare period volumes with the per-layer median of trades opened BEFORE the period."""
+    hist = trades[trades["open_time"].notna() & (trades["open_time"] < pd.Timestamp(start))]
     if len(hist) < 5:
-        return _check("lot_escalation", UNVERIFIABLE, "Too few trades for a volume baseline.")
+        return _check("lot_escalation", UNVERIFIABLE,
+                      f"Only {len(hist)} trade(s) before this period; at least 5 are needed "
+                      "for a volume baseline.")
     flagged = []
     for layer, g in hist.groupby("layer"):
         med = g["volume"].median()
@@ -397,23 +457,38 @@ def analyze_risk(*, deals, trades_all, period_trades, equity, start, end, risk_c
     eqdd = drawdown_full.get("equity", {})
     baldd = drawdown_full.get("balance", {})
     lim = risk_cfg.max_equity_drawdown_pct
-    if eqdd.get("status") == CALCULATED:
-        v = eqdd["max_dd_pct"]
-        C.append(_check("max_equity_drawdown", BREACH if v >= lim else COMPLIANT,
-                        f"Observed equity drawdown {v:.2f}% vs limit {lim}%.",
-                        "equity observations", {"max_dd_pct": v}))
-    elif baldd.get("status") == CALCULATED and baldd.get("max_dd_pct") is not None:
-        v = baldd["max_dd_pct"]
-        if v >= lim:
-            C.append(_check("max_equity_drawdown", BREACH,
-                            f"Closed-trade balance drawdown alone is {v:.2f}% (≥ {lim}%); equity "
-                            "drawdown is at least this deep.", "closed-trade balance",
-                            {"balance_dd_pct": v}))
-        else:
-            C.append(_check("max_equity_drawdown", UNVERIFIABLE,
-                            f"Closed-trade drawdown {v:.2f}% is below {lim}%, but equity "
-                            "drawdown (incl. floating losses) is not observable.",
-                            "closed-trade balance (lower bound)", {"balance_dd_pct": v}))
+    bal_v = baldd.get("max_dd_pct") if baldd.get("status") == CALCULATED else None
+    eq_v = eqdd.get("max_dd_pct") if eqdd.get("status") == CALCULATED else None
+    # Equity coverage across the whole trading history up to period end
+    eq_gap = np.inf
+    if eq_v is not None and trades_all is not None and not trades_all.empty:
+        hist_start = trades_all["open_time"].dropna().min()
+        acts = pd.concat([trades_all["open_time"], trades_all["close_time"]]).dropna()
+        acts = acts[acts < pd.Timestamp(end)]
+        if pd.notna(hist_start) and len(acts):
+            eq_gap = _coverage_gap_s(equity["time"], hist_start, acts.max())
+    ev = {"equity_dd_pct": eq_v, "balance_dd_pct": bal_v,
+          "equity_max_gap_s": None if np.isinf(eq_gap) else eq_gap}
+    if eq_v is not None and eq_v >= lim:
+        C.append(_check("max_equity_drawdown", BREACH,
+                        f"Observed equity drawdown {eq_v:.2f}% ≥ limit {lim}%.",
+                        "equity observations", ev))
+    elif bal_v is not None and bal_v >= lim:
+        C.append(_check("max_equity_drawdown", BREACH,
+                        f"Closed-trade balance drawdown alone is {bal_v:.2f}% (≥ {lim}%); "
+                        "equity drawdown is at least this deep.", "closed-trade balance", ev))
+    elif eq_v is not None and eq_gap <= risk_cfg.max_equity_sampling_s_for_lock_verification:
+        C.append(_check("max_equity_drawdown", COMPLIANT,
+                        f"Observed equity drawdown {eq_v:.2f}% vs limit {lim}% (equity covers "
+                        "the full trading history).", "equity observations", ev))
+    elif eq_v is not None or bal_v is not None:
+        shown = ", ".join(x for x in (
+            f"observed equity DD {eq_v:.2f}%" if eq_v is not None else "",
+            f"closed-trade DD {bal_v:.2f}%" if bal_v is not None else "") if x)
+        C.append(_check("max_equity_drawdown", UNVERIFIABLE,
+                        f"{shown} below {lim}%, but equity observations do not cover the whole "
+                        "trading history, so floating drawdown cannot be ruled out.",
+                        "partial equity / closed-trade lower bound", ev))
     else:
         C.append(_check("max_equity_drawdown", UNVERIFIABLE, "No drawdown data available."))
 
@@ -439,7 +514,7 @@ def analyze_risk(*, deals, trades_all, period_trades, equity, start, end, risk_c
             C.append(_check("stop_loss_presence", COMPLIANT, "Every position had a stop loss.",
                             "SL recorded on entry deal / report", {"counts": sl}))
 
-    C.append(lot_escalation_check(trades_all, pt) if not pt.empty
+    C.append(lot_escalation_check(trades_all, pt, start) if not pt.empty
              else _check("lot_escalation", NOT_APPLICABLE, "No trades."))
 
     # ------------------------------------------------------------ metrics

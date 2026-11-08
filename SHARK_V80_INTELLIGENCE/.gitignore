@@ -1,0 +1,18 @@
+# Private trading data - NEVER commit account statements or databases
+database/*.db
+database/backups/
+data/incoming/*
+data/processed/*
+data/archive/*
+!data/**/.gitkeep
+reports/weekly/*
+reports/monthly/*
+!reports/**/.gitkeep
+logs/*
+!logs/.gitkeep
+svpi_settings.json
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/

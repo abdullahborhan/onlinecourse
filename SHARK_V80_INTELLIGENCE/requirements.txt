@@ -1,0 +1,8 @@
+# SHARK V80 PERFORMANCE INTELLIGENCE - Python 3.12+
+pandas>=2.2
+numpy>=1.26
+streamlit>=1.36
+plotly>=5.20
+reportlab>=4.1
+tzdata>=2024.1
+pytest>=8.0

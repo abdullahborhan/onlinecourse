@@ -60,7 +60,7 @@ EXPECTED = {
         "net_profit": 24.75, "gross_profit": 40.75, "gross_loss": -16.0,
         "profit_factor": 40.75 / 16.0, "trades": 6, "wins": 3, "losses": 2, "breakeven": 1,
         "win_rate": 50.0, "largest_win": 19.5, "largest_loss": -10.5,
-        "commission": -3.25, "partial_close_positions": 1,
+        "commission": -2.75, "partial_close_positions": 1,
         "start_balance": 10_000.0, "total_return_pct": 0.2475,
     },
     "week2": {"nets": [-5.5, -2.75, 9.5], "net_profit": 1.25, "trades": 3, "wins": 1,

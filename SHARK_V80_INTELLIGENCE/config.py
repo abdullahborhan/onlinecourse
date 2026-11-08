@@ -76,6 +76,12 @@ class RiskConfig:
     # If True, the profit target is treated as a lock (no new entries after it is hit).
     profit_target_is_lock: bool = True
     martingale_enabled: bool = False
+    # Relative tolerance before an individual layer's SL-implied risk is flagged
+    # (lot-step rounding makes exact percentages impossible). 0.10 = +10%.
+    risk_tolerance_rel: float = 0.10
+    # Equity observations must be at least this frequent (median seconds) for
+    # daily locks to be marked COMPLIANT rather than UNVERIFIABLE.
+    max_equity_sampling_s_for_lock_verification: int = 900
     source: str = "APPROVED_BASELINE"  # or "SET_FILE" / "USER_PROVIDED"
 
     def to_dict(self) -> dict:

@@ -69,14 +69,16 @@ EXPECTED = {
 }
 
 
-def build_deals() -> pd.DataFrame:
+def build_deals(positions=None, deposits=None) -> pd.DataFrame:
     """Deals in MT5 deal-history CSV layout (one IN deal + one or more OUT deals)."""
+    positions = POSITIONS if positions is None else positions
+    deposits = DEPOSITS if deposits is None else deposits
     rows = []
-    for t, amount, cmt in DEPOSITS:
+    for t, amount, cmt in deposits:
         rows.append(dict(Time=t, Type="balance", Entry="", Symbol="", Volume="", Price="",
                          Order="", Position="", Magic="", Commission=0.0, Swap=0.0, Fee=0.0,
                          Profit=amount, Comment=f"{cmt} {MARKER}", SL="", TP=""))
-    for p in POSITIONS:
+    for p in positions:
         rows.append(dict(Time=p["t_open"], Type=p["dir"], Entry="in", Symbol=SYMBOL,
                          Volume=p["vol"], Price=p["p_open"], Order=p["pid"], Position=p["pid"],
                          Magic=MAGIC, Commission=0.0, Swap=0.0, Fee=0.0, Profit=0.0,
@@ -101,8 +103,8 @@ def build_deals() -> pd.DataFrame:
     return df
 
 
-def deals_csv(**drop) -> str:
-    df = build_deals()
+def deals_csv(positions=None, deposits=None, **drop) -> str:
+    df = build_deals(positions, deposits)
     for col in drop.get("drop_columns", []):
         df = df.drop(columns=col)
     return df.to_csv(index=False)
@@ -206,3 +208,23 @@ def set_file(looser: bool = False) -> str:
         "UseMartingale=false",
         "MagicNumber=80080",
     ]) + "\n"
+
+
+def pos(pid, direction, vol, t_open, p_open, sl, t_close, p_close, comment="", tp=0.0, comm=0.0):
+    """Compact single-exit position spec for scenario tests."""
+    return dict(pid=pid, dir=direction, vol=vol, t_open=t_open, p_open=p_open, sl=sl, tp=tp,
+                comment=comment, exits=[(t_close, vol, p_close, comm)])
+
+
+def dense_equity_csv(deals_df: pd.DataFrame, start: str, end: str, freq: str = "5min",
+                     dips: dict | None = None) -> str:
+    """Equity sampled every ``freq`` equal to balance, with optional dips {time: amount}."""
+    d = deals_df.copy()
+    d["t"] = pd.to_datetime(d["Time"], format="%Y.%m.%d %H:%M:%S")
+    rows = []
+    for t in pd.date_range(start, end, freq=freq, inclusive="left"):
+        past = d[d["t"] <= t]
+        bal = float(past["Balance"].iloc[-1]) if not past.empty else 0.0
+        eq = bal - (dips or {}).get(str(t), 0.0)
+        rows.append({"Time": t.strftime("%Y.%m.%d %H:%M"), "Balance": bal, "Equity": eq})
+    return pd.DataFrame(rows).to_csv(index=False) + f"# {MARKER}\n"
